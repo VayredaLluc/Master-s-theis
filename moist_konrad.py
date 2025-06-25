@@ -198,71 +198,13 @@ def T_vmr_z(Ts,Tatm,vmr0,vmr1,z,z_low):
     return T_low,vmr_low
 
 #THE AVATAR
-def RCPE_step_strong(timestep,
-              atmosphere,surface,radiation,clearsky,
-              SH,LH,albedo,
-              conv_top):
-    
-    prec_eff = np.maximum(0.,np.minimum(1.,LH/(LH+SH)))
-    surface.albedo = albedo
-    
-    #update heating rates
-    
-    radiation.update_heatingrates(atmosphere = atmosphere,surface = surface,cloud=clearsky)
-    
-    rad_heat_atm = np.ones_like(radiation['net_htngrt'][0])
-    
-    rad_heat_atm[:] = - np.diff(radiation['lw_flxu'][0] + radiation['sw_flxu'][0]-
-                             (radiation['lw_flxd'][0] + radiation['sw_flxd'][0]))
-    
-    troposphere_radiation = np.sum(rad_heat_atm[:conv_top])
-     
-    heating_rates = np.ones_like(rad_heat_atm)
-    heating_rates[:] = ((rad_heat_atm[:])
-                                 /cp_air * g/-np.diff(atmosphere['phlev'])[:] * seconds_day)
-
-    #update net radiaton at surface
-
-    net_rad_surface = (radiation['lw_flxd'][0,0] + radiation['sw_flxd'][0,0] - 
-                    (radiation['lw_flxu'][0,0] + radiation['sw_flxu'][0,0]))
-    
-    atm_rad = np.sum(rad_heat_atm[:])
-    
-    #temperature of atmosphere after radiative update
-
-    atmosphere['T'] += heating_rates * timestep
-    T_radiation = atmosphere['T'][0].copy()
-    
-    #convective adjustment of atmosphere (conserves thermal energy)
-    prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
-    prec_mass = prec_heating/Lv * seconds_day * timestep
-    
-    atmosphere['T'][0], T_atm_low, E_dif = T_convection_strong(atmosphere['plev'], T_radiation, surface['temperature'],
-                                         (SH + prec_heating) * seconds_day * timestep, atmosphere)
-
-    E_imbalance = E_dif.copy()/(timestep*seconds_day)
-    #print(E_imbalance,SH,LH)
-
-    
-    #water adjustment
-    conv_top = convective_top(atmosphere['T'][0],T_radiation)
-    cold_point = coldpoint(atmosphere['T'][0])
-    M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev']) - prec_mass + LH/Lv*seconds_day*timestep
-    
-    RH = opt_column_water_to_rh(M_w,atmosphere['T'][0],
-                                atmosphere['plev'],atmosphere['phlev'],cold_point)
-    
-    atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
-    
-    return atmosphere,surface,radiation,net_rad_surface,atm_rad,T_atm_low,E_imbalance,prec_mass,RH,cold_point,conv_top
-    
 def RCPE_step(timestep,
               atmosphere,surface,radiation,clearsky,
               SH,LH,albedo,
               conv_top, 
               strong_coupling = False, constrain_RH = True):
     
-    prec_eff = np.maximum(0.,np.minimum(1.,LH/(LH+SH)))
+    
     surface.albedo = albedo
     
     #update heating rates
@@ -284,6 +226,8 @@ def RCPE_step(timestep,
 
     net_rad_surface = (radiation['lw_flxd'][0,0] + radiation['sw_flxd'][0,0] - 
                     (radiation['lw_flxu'][0,0] + radiation['sw_flxu'][0,0]))
+                    
+    prec_eff = np.maximum(0.,np.minimum(1.,LH/(net_rad_surface)))
     
     atm_rad = np.sum(rad_heat_atm[:])
     
@@ -293,7 +237,8 @@ def RCPE_step(timestep,
     T_radiation = atmosphere['T'][0].copy()
     
     #convective adjustment of atmosphere (conserves thermal energy)
-    prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
+    prec_heating = - prec_eff * atm_rad
+    #prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
     prec_mass = prec_heating/Lv * seconds_day * timestep
     
     if strong_coupling == True:
