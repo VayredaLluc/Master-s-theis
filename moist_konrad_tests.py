@@ -366,7 +366,8 @@ def RCPE_step(timestep,
 
 def RCPE_step_DSE(timestep,
               atmosphere,surface,radiation,clearsky,
-              SH,LH,albedo,T_atm_low, 
+              SH,LH,albedo,T_atm_low,
+              day=1,
               strong_coupling = False, constrain_RH = True,Flux_case = 1):
     
     T_atm_ini = atmosphere['T'][0].copy()
@@ -403,7 +404,7 @@ def RCPE_step_DSE(timestep,
     #Flux = np.maximum(net_rad_surface,np.maximum(abs(atm_rad),SH+LH))
     #Flux = (abs(atm_rad)+SH+LH+net_rad_surface)/3
     
-    prec_eff = np.maximum(0.,np.minimum(1.,LH/Flux))
+    prec_eff = np.maximum(.03,np.minimum(.97,LH/Flux))
     #prec_eff = np.maximum(0.,LH/Flux)
      
     #temperature of atmosphere after radiative update
@@ -417,16 +418,19 @@ def RCPE_step_DSE(timestep,
     #prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
     prec_mass = prec_heating/Lv * seconds_day * timestep
     
-    if strong_coupling == True:
-        atmosphere['T'][0],T_atm_low,E_dif = T_convection_strong_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
-                                         (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
+    if day == 1:
+        if strong_coupling == True:
+            atmosphere['T'][0],T_atm_low,E_dif = T_convection_strong_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
+                                            (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
+        else:
+            atmosphere['T'][0],T_atm_low,E_dif = T_convection_weak_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
+                                            (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
+
+        E_imbalance = E_dif.copy()/(timestep*seconds_day)
+    
     else:
-        atmosphere['T'][0],T_atm_low,E_dif = T_convection_weak_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
-                                         (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
-
-    E_imbalance = E_dif.copy()/(timestep*seconds_day)
+        E_imbalance = np.array([0.])
     #print(E_imbalance,SH,LH)
-
     
     #water adjustment
     conv_top = convective_top(atmosphere['T'][0],T_radiation)
@@ -439,7 +443,7 @@ def RCPE_step_DSE(timestep,
         if RH[0] > 0.95:
             RH = manabe_rh(0.95, atmosphere['plev'])
             
-        if RH[0] < 0.4:
+        if RH[0] < 0.3:
             RH = manabe_rh(0.3, atmosphere['plev'])
         
     atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
