@@ -29,12 +29,14 @@ def moist_adiabat(T_s,T_rad,atmosphere):
 
 def convective_top(T_con,T_rad):
     itop = np.where(T_rad - T_con == 0)[0][0]
-    if itop == 0:
-        itop = np.where(T_rad - T_con == 0)[0][1]
+#    if itop == 0:
+#        itop = np.where(T_rad - T_con == 0)[0][1]
     return itop
 
 def coldpoint(T):
-    itop = np.where(np.diff(T)>=0)[0][0]
+    i_grad_pos = np.where(np.diff(T)>=0)[0]
+    i_grad_pos = np.append(i_grad_pos,40)
+    itop = i_grad_pos[0]
     
     return itop
 
@@ -142,13 +144,13 @@ def T_convection_weak(p, T_rad, T_surface, HF, atmosphere): #find T after convec
     print(dpos,dneg)
     
     if dneg > 0 or np.abs(dneg)<tol:
-#        print('Trad high already', dneg)
+    #        print('Trad high already', dneg)
         ds = dneg
         dneg = 0
         Ts = Tc
     
     if dpos < tol:
-#        print('Tsurf low already', dpos)
+    #        print('Tsurf low already', dpos)
         ds = dpos
         dpos = 0
         Ts = Th
@@ -156,7 +158,7 @@ def T_convection_weak(p, T_rad, T_surface, HF, atmosphere): #find T after convec
     ''' 
     Ts = Tc + (Th-Tc) * -dneg/(-dneg+dpos)
     ds = fun(Ts)
-#    print(ds)
+    #    print(ds)
 
     if ds > 0:
         dpos = ds
@@ -210,13 +212,13 @@ def T_convection_weak_DSE(p,T_atm_ini,T_atm_low,T_rad,T_surface,HF,atmosphere): 
     # print(dpos,dneg)
     
     if dneg > 0 or np.abs(dneg)<tol:
-#        print('Trad high already', dneg)
+    #        print('Trad high already', dneg)
         ds = dneg
         dneg = 0
         Ts = Tc
     
     if dpos < tol:
-#        print('Tsurf low already', dpos)
+    #        print('Tsurf low already', dpos)
         ds = dpos
         dpos = 0
         Ts = Th
@@ -224,7 +226,7 @@ def T_convection_weak_DSE(p,T_atm_ini,T_atm_low,T_rad,T_surface,HF,atmosphere): 
     ''' 
     Ts = Tc + (Th-Tc) * -dneg/(-dneg+dpos)
     ds = fun(Ts)
-#    print(ds)
+    #    print(ds)
 
     if ds > 0:
         dpos = ds
@@ -368,7 +370,7 @@ def RCPE_step_DSE(timestep,
               atmosphere,surface,radiation,clearsky,
               SH,LH,albedo,T_atm_low,
               day=1,
-              strong_coupling = False, constrain_RH = True,Flux_case = 1):
+              strong_coupling = False, constrain_RH = True, Flux_case = 1, constrain_eff = True):
     
     T_atm_ini = atmosphere['T'][0].copy()
     surface.albedo = albedo
@@ -396,7 +398,7 @@ def RCPE_step_DSE(timestep,
     atm_rad = np.sum(rad_heat_atm[:])                       
     
     if Flux_case == 1:
-        Flux = LH+abs(SH)
+        Flux = LH+SH
     if Flux_case == 2:
         Flux = net_rad_surface
     if Flux_case == 3:
@@ -404,8 +406,10 @@ def RCPE_step_DSE(timestep,
     #Flux = np.maximum(net_rad_surface,np.maximum(abs(atm_rad),SH+LH))
     #Flux = (abs(atm_rad)+SH+LH+net_rad_surface)/3
     
-    prec_eff = np.maximum(.03,np.minimum(.97,LH/Flux))
-    #prec_eff = np.maximum(0.,LH/Flux)
+    if constrain_eff == True:
+        prec_eff = np.maximum(.03,np.minimum(.95,LH/Flux))
+    else:
+        prec_eff = LH/Flux
      
     #temperature of atmosphere after radiative update
 
@@ -414,6 +418,8 @@ def RCPE_step_DSE(timestep,
     
     #convective adjustment of atmosphere (conserves thermal energy)
     prec_heating = - prec_eff * atm_rad
+    P_corr = np.minimum(0,abs(net_rad_surface+atm_rad)-abs(prec_heating-LH))
+    #prec_heating = prec_heating + np.sign(prec_heating-LH)*P_corr
     #prec_heating = prec_eff * (-atm_rad+abs(SH))
     #prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
     prec_mass = prec_heating/Lv * seconds_day * timestep

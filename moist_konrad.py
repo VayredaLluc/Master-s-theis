@@ -395,7 +395,7 @@ def RCPE_step_DSE(timestep,
     atm_rad = np.sum(rad_heat_atm[:])                       
     
     if Flux_case == 1:
-        Flux = LH+abs(SH)
+        Flux = LH+SH
     if Flux_case == 2:
         Flux = net_rad_surface
     if Flux_case == 3:
