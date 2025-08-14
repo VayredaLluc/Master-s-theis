@@ -277,9 +277,9 @@ def latent_heat(vmr, T_bl, p_s, ratio_ls): #sensible heat flux into the atmosphe
     lh = wind*Cd*rho_s*Lv*(mmr_sat-mmr) #J s-1 m-2
     return lh*ratio_ls
 
-def T_vmr_z(Ts,Tatm,vmr0,vmr1,z,z_low):
-    T_low = (z[1]-z_low)*(Ts-Tatm)/z[1] + Tatm
-    vmr_low = (vmr0-vmr1)*(z[2]-z_low)/(z[2]-z[1]) + vmr1
+def T_vmr_z(Ts,Tatm,vmr0,vmr1,z,z_T,z_vmr):
+    T_low = (z[1]-z_T)*(Ts-Tatm)/z[1] + Tatm
+    vmr_low = (vmr0-vmr1)*(z[2]-z_vmr)/(z[2]-z[1]) + vmr1
     
     return T_low,vmr_low
 
@@ -402,8 +402,11 @@ def RCPE_step_DSE(timestep,
         Flux = abs(atm_rad)
     #Flux = np.maximum(net_rad_surface,np.maximum(abs(atm_rad),SH+LH))
     #Flux = (abs(atm_rad)+SH+LH+net_rad_surface)/3
-    
-    prec_eff = np.maximum(0.,np.minimum(1.,LH/Flux))
+
+    if strong_coupling == True:
+        prec_eff = np.maximum(0.,np.minimum(1.,LH/Flux))
+    else:    
+        prec_eff = np.maximum(0.,np.minimum(.95,LH/Flux))
     #prec_eff = np.maximum(0.,LH/Flux)
      
     #temperature of atmosphere after radiative update
