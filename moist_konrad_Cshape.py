@@ -418,9 +418,6 @@ def RCPE_step_DSE(timestep,
 
     net_rad_surface = (radiation['lw_flxd'][0,0] + radiation['sw_flxd'][0,0] - 
                     (radiation['lw_flxu'][0,0] + radiation['sw_flxu'][0,0]))
-
-    sw_d_sfc = radiation['sw_flxd'][0,0]
-    lw_d_sfc = radiation['lw_flxd'][0,0]
                     
     atm_rad = np.sum(rad_heat_atm[:])                       
     
@@ -478,4 +475,147 @@ def RCPE_step_DSE(timestep,
     atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
     RH = konrad.physics.vmr2relative_humidity(atmosphere['H2O'][0],atmosphere['plev'],atmosphere['T'][0])
     
-    return atmosphere,surface,radiation,net_rad_surface,atm_rad,sw_d_sfc,lw_d_sfc,T_atm_low,E_imbalance,prec_mass/timestep,prec_heating,RH,cold_point,prec_eff,M_w
+    return atmosphere,surface,radiation,net_rad_surface,atm_rad,T_atm_low,E_imbalance,prec_mass/timestep,prec_heating,RH,cold_point,prec_eff,M_w
+
+def RCPE_step_DSE_fixed_RH(timestep,
+              atmosphere,surface,radiation,clearsky,
+              SH,LH,albedo,T_atm_low,RHsurf,E_imbalance,
+              strong_coupling = False, constrain_RH = True,Flux_case = 1):
+    
+    T_atm_ini = atmosphere['T'][0].copy()
+    surface.albedo = albedo
+    
+    #update heating rates
+    
+    radiation.update_heatingrates(atmosphere = atmosphere,surface = surface,cloud=clearsky)
+    
+    rad_heat_atm = np.ones_like(radiation['net_htngrt'][0])
+    
+    rad_heat_atm[:] = - np.diff(radiation['lw_flxu'][0] + radiation['sw_flxu'][0]-
+                             (radiation['lw_flxd'][0] + radiation['sw_flxd'][0]))
+    
+    # troposphere_radiation = np.sum(rad_heat_atm[:conv_top])
+     
+    heating_rates = np.ones_like(rad_heat_atm)
+    heating_rates[:] = ((rad_heat_atm[:])
+                                 /cp_air * g/-np.diff(atmosphere['phlev'])[:] * seconds_day)
+
+    #update net radiaton at surface
+
+    net_rad_surface = (radiation['lw_flxd'][0,0] + radiation['sw_flxd'][0,0] - 
+                    (radiation['lw_flxu'][0,0] + radiation['sw_flxu'][0,0]))
+                    
+    atm_rad = np.sum(rad_heat_atm[:])                       
+    
+    if Flux_case == 1:
+        Flux = LH+SH
+    if Flux_case == 2:
+        Flux = net_rad_surface
+    if Flux_case == 3:
+        Flux = abs(atm_rad)
+    #Flux = np.maximum(net_rad_surface,np.maximum(abs(atm_rad),SH+LH))
+    #Flux = (abs(atm_rad)+SH+LH+net_rad_surface)/3
+
+    if strong_coupling == True:
+        prec_eff = np.maximum(0.,np.minimum(1.,LH/Flux))
+    else:    
+        prec_eff = np.maximum(0.,np.minimum(1.,LH/Flux))
+    #prec_eff = np.maximum(0.,LH/Flux)
+     
+    #temperature of atmosphere after radiative update
+
+    atmosphere['T'] += heating_rates * timestep
+    T_radiation = atmosphere['T'][0].copy()
+    
+    #convective adjustment of atmosphere (conserves thermal energy)
+    prec_heating = - prec_eff * atm_rad
+    prec_heating = LH
+    #prec_heating = prec_eff * (-atm_rad+abs(SH))
+    #prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
+    prec_mass = prec_heating/Lv * seconds_day * timestep
+
+    if strong_coupling == True:
+        atmosphere['T'][0],T_atm_low,E_dif = T_convection_strong_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
+                                         (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
+    else:
+        atmosphere['T'][0],T_atm_low,E_dif = T_convection_weak_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
+                                         (SH + prec_heating + atm_rad) * seconds_day * timestep, atmosphere)
+
+    E_imbalance = E_dif.copy()/(timestep*seconds_day)
+    #print(E_imbalance,SH,LH)
+
+    
+    #water adjustment
+    #conv_top = convective_top(atmosphere['T'][0],T_radiation)
+    cold_point = coldpoint(atmosphere['T'][0],atmosphere['plev'])
+    # M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev']) - prec_mass + LH/Lv*seconds_day*timestep
+        
+    RH = manabe_rh(RHsurf, atmosphere['plev'])
+        
+    atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
+    M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev'])
+    
+    return atmosphere,surface,radiation,net_rad_surface,atm_rad,T_atm_low,E_imbalance,prec_mass/timestep,prec_heating,RH,cold_point,prec_eff,M_w
+
+
+def RCE_step_DSE(timestep,
+              atmosphere,surface,radiation,clearsky,
+              SH,LH,albedo,T_atm_low,RHsurf):
+    
+    T_atm_ini = atmosphere['T'][0].copy()
+    surface.albedo = albedo
+    
+    #update heating rates
+    
+    radiation.update_heatingrates(atmosphere = atmosphere,surface = surface,cloud=clearsky)
+    
+    rad_heat_atm = np.ones_like(radiation['net_htngrt'][0])
+    
+    rad_heat_atm[:] = - np.diff(radiation['lw_flxu'][0] + radiation['sw_flxu'][0]-
+                             (radiation['lw_flxd'][0] + radiation['sw_flxd'][0]))
+    
+    # troposphere_radiation = np.sum(rad_heat_atm[:conv_top])
+     
+    heating_rates = np.ones_like(rad_heat_atm)
+    heating_rates[:] = ((rad_heat_atm[:])
+                                 /cp_air * g/-np.diff(atmosphere['phlev'])[:] * seconds_day)
+
+    #update net radiaton at surface
+
+    net_rad_surface = (radiation['lw_flxd'][0,0] + radiation['sw_flxd'][0,0] - 
+                    (radiation['lw_flxu'][0,0] + radiation['sw_flxu'][0,0]))
+                    
+    atm_rad = np.sum(rad_heat_atm[:])                       
+    
+    prec_eff = 0.9
+    #temperature of atmosphere after radiative update
+
+    atmosphere['T'] += heating_rates * timestep
+    T_radiation = atmosphere['T'][0].copy()
+    
+    #convective adjustment of atmosphere (conserves thermal energy)
+    prec_heating = LH
+    #prec_heating = prec_eff * (-atm_rad+abs(SH))
+    #prec_heating = - prec_eff * troposphere_radiation #amount of energy invested in precipitation
+    prec_mass = prec_heating/Lv * seconds_day * timestep
+
+    atmosphere['T'][0],T_atm_low,E_dif = T_convection_strong_DSE(atmosphere['plev'], T_atm_ini, T_atm_low, T_radiation, surface['temperature'],
+                                                                (atm_rad) * seconds_day * timestep, atmosphere)
+
+
+    E_imbalance = E_dif.copy()/(timestep*seconds_day)
+    #print(E_imbalance,SH,LH)
+
+    
+    #water adjustment
+    #conv_top = convective_top(atmosphere['T'][0],T_radiation)
+    cold_point = coldpoint(atmosphere['T'][0],atmosphere['plev'])
+    # M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev']) - prec_mass + LH/Lv*seconds_day*timestep
+        
+    RH = manabe_rh(RHsurf, atmosphere['plev'])
+    RH = fixed_rh(RHsurf, atmosphere['plev'])
+        
+    atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
+    M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev'])
+    
+    return atmosphere,surface,radiation,net_rad_surface,atm_rad,T_atm_low,E_imbalance,prec_mass/timestep,prec_heating,RH,cold_point,prec_eff,M_w

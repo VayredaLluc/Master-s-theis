@@ -33,10 +33,12 @@ def moist_adiabat(T_s,T_rad,atmosphere):
     
     return T_con
 
-def convective_top(T_con,T_rad):
-    itop = np.where(T_rad - T_con == 0)[0][0]
-    if itop == 0:
-        itop = np.where(T_rad - T_con == 0)[0][1]
+def convective_top(T_con,T_rad,p):
+    iconT = np.where(T_rad - T_con == 0)[0][0]
+    iminp = np.where(p <= 5e4)[0][0]
+
+    itop = max(iconT,iminp)
+
     return itop
 
 def coldpoint(T,p):
@@ -46,7 +48,7 @@ def coldpoint(T,p):
     imaxp = np.where(p <= 10e2)[0][0]
     
     itop = max(iminT,iminp)
-    itop = min(itop,imaxp)
+    itop = min(itop,imaxp) 
 
     return itop
 
@@ -73,8 +75,9 @@ def column_water_mass(vmr,ph): #kg m-2
     return M_water
 
 def manabe_rh(rhs, p):
-#    rh = np.maximum(0,rhs*(p/p[0]-0.02)/(1-0.02))
-    rh = rhs*(p/p[0]-0.02)/(1-0.02)
+    #rh = rhs*(((p/p[0])-0.02)/(1-0.02)+0.02)
+    rh = rhs*p/p[0]
+    #rh = np.maximum(1e-2,rh)
     return rh
 
 def fixed_rh(rhs, p):
@@ -83,24 +86,25 @@ def fixed_rh(rhs, p):
     return rh    
 
 def rh_to_vmr(rh,T,p,itop):
-    mixing_ratio = np.ones_like(T)
-    vmr_itop = konrad.physics.relative_humidity2vmr(rh[itop],p[itop],T[itop])
-    mixing_ratio[:itop] = konrad.physics.relative_humidity2vmr(rh[:itop],p[:itop],T[:itop])
-    mixing_ratio[itop:] = vmr_itop
+    #mixing_ratio = np.ones_like(T)
+    #vmr_itop = konrad.physics.relative_humidity2vmr(rh[itop],p[itop],T[itop])
+    #mixing_ratio[:itop] = konrad.physics.relative_humidity2vmr(rh[:itop],p[:itop],T[:itop])
+    mixing_ratio = konrad.physics.relative_humidity2vmr(rh,p,T)
+    #mixing_ratio[itop:] = vmr_itop
     
     return mixing_ratio
 
 def opt_column_water_to_rh(M_water,T_atm,p,ph,itop):
     
     def fun(rhs):
-        rh = fixed_rh(rhs, p)
+        rh = manabe_rh(rhs, p)
         vmr = rh_to_vmr(rh,T_atm,p,itop)
         rh_w_mass = column_water_mass(vmr,ph)
         res = rh_w_mass - M_water
         return res
     
     rhs_opt = optimize.brentq(fun, 0., 5)
-    rh_opt = fixed_rh(rhs_opt, p)
+    rh_opt = manabe_rh(rhs_opt, p)
     return rh_opt
 
 #FIRE
@@ -364,17 +368,17 @@ def RCPE_step(timestep,
     
     #water adjustment
     conv_top = convective_top(atmosphere['T'][0],T_radiation)
-    cold_point = coldpoint(atmosphere['T'][0])
+    cold_point = coldpoint(atmosphere['T'][0],atmosphere['plev'])
     M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev']) - prec_mass + LH/Lv*seconds_day*timestep
     
     RH = opt_column_water_to_rh(M_w,atmosphere['T'][0],
                                 atmosphere['plev'],atmosphere['phlev'],cold_point)
     if constrain_RH == True:
-        if RH[0] > 0.99:
-            RH = fixed_rh(0.99, atmosphere['plev'])
+        if RH[0] > 0.95:
+            RH = manabe_rh(0.95, atmosphere['plev'])
             
         if RH[0] < 0.3:
-            RH = fixed_rh(0.3, atmosphere['plev'])
+            RH = manabe_rh(0.3, atmosphere['plev'])
         
     atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
     
@@ -449,18 +453,19 @@ def RCPE_step_DSE(timestep,
 
     
     #water adjustment
-    #conv_top = convective_top(atmosphere['T'][0],T_radiation)
+    conv_top = convective_top(atmosphere['T'][0],T_radiation,atmosphere['plev'])
     cold_point = coldpoint(atmosphere['T'][0],atmosphere['plev'])
+    #cold_point = int(0.8*cold_point)
     M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev']) - prec_mass + LH/Lv*seconds_day*timestep
     
     RH = opt_column_water_to_rh(M_w,atmosphere['T'][0],
                                 atmosphere['plev'],atmosphere['phlev'],cold_point)
     if constrain_RH == True:
         if RH[0] > 0.95:
-            RH = fixed_rh(0.95, atmosphere['plev'])
+            RH = manabe_rh(0.95, atmosphere['plev'])
             
         if RH[0] < 0.3:
-            RH = fixed_rh(0.3, atmosphere['plev'])
+            RH = manabe_rh(0.3, atmosphere['plev'])
         
     atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
     RH = konrad.physics.vmr2relative_humidity(atmosphere['H2O'][0],atmosphere['plev'],atmosphere['T'][0])
@@ -607,6 +612,5 @@ def RCE_step_DSE(timestep,
         
     atmosphere['H2O'][0] = rh_to_vmr(RH,atmosphere['T'][0],atmosphere['plev'],cold_point)
     M_w = column_water_mass(atmosphere['H2O'][0],atmosphere['phlev'])
-    RH = konrad.physics.vmr2relative_humidity(atmosphere['H2O'][0],patmosphere['plev'],atmosphere['T'][0])
     
     return atmosphere,surface,radiation,net_rad_surface,atm_rad,T_atm_low,E_imbalance,prec_mass/timestep,prec_heating,RH,cold_point,prec_eff,M_w
